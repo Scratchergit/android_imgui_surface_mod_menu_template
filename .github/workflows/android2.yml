@@ -5,22 +5,72 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
 
     runs-on: ubuntu-latest
 
+    env:
+      JAVA_HOME: /usr/lib/jvm/java-11-openjdk
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+
     steps:
+    # 1️⃣ Checkout repo
     - uses: actions/checkout@v4
-    - name: set up JDK 11
+
+    # 2️⃣ Set up JDK 11
+    - name: Set up JDK
       uses: actions/setup-java@v4
       with:
         java-version: '11'
         distribution: 'temurin'
         cache: gradle
 
+    # 3️⃣ Install Linux dependencies
+    - name: Install Linux dependencies
+      run: sudo apt-get update && sudo apt-get install -y wget unzip openjdk-11-jdk
+
+    # 4️⃣ Install Android SDK & Build Tools
+    - name: Install Android SDK
+      run: |
+        mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/latest
+        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip
+        unzip cmdline-tools.zip -d $ANDROID_SDK_ROOT/cmdline-tools/latest
+        # Move binaries into correct location
+        mv $ANDROID_SDK_ROOT/cmdline-tools/latest/cmdline-tools/* $ANDROID_SDK_ROOT/cmdline-tools/latest/
+        chmod +x $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
+        # Accept licenses
+        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
+        # Install build tools, platform-tools, and API 33
+        $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+    # 5️⃣ Grant execute permission for Gradle wrapper
     - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-    - name: Build with Gradle
-      run: ./gradlew build
+      run: chmod +x ./gradlew
+
+    # 6️⃣ Optional: Patch native code to log raw FPS
+    - name: Patch raw FPS logging
+      run: |
+        NATIVE_LIB="app/src/main/cpp/renderer.cpp"
+        if [ -f "$NATIVE_LIB" ]; then
+          sed -i '/void renderFrame()/a \
+          static auto lastTime = std::chrono::high_resolution_clock::now();\
+          auto now = std::chrono::high_resolution_clock::now();\
+          std::chrono::duration<double> delta = now - lastTime;\
+          double fps = 1.0 / delta.count();\
+          lastTime = now;\
+          __android_log_print(ANDROID_LOG_DEBUG, "RAW_FPS", "FPS: %.2f", fps);' $NATIVE_LIB
+        fi
+
+    # 7️⃣ Build APK
+    - name: Build APK
+      run: ./gradlew clean assembleRelease
+
+    # 8️⃣ Upload APK artifact
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: fps-app-apk
+        path: app/build/outputs/apk/release/app-release.apk
