@@ -62,6 +62,12 @@ jobs:
             lastTime = now;\
             __android_log_print(ANDROID_LOG_DEBUG, "RAW_FPS", "FPS: %.2f", fps);' $NATIVE_LIB
           fi
+      
+      - name: Force Android SDK env (final)
+        run: |
+          SDK_PATH="${GITHUB_WORKSPACE}/android-sdk"
+          echo "ANDROID_HOME=$SDK_PATH" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK_PATH" >> $GITHUB_ENV
 
       # 7️⃣ Build APK
       - name: Build APK
